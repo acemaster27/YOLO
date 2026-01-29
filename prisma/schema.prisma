@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  user
+  seller
+  admin
+}
+
+enum ProductStatus {
+  draft
+  active
+  archived
+}
+
+enum CartStatus {
+  active
+  converted
+}
+
+enum OrderStatus {
+  success
+  pending
+  failed
+}
+
+enum PaymentStatus {
+  created
+  success
+  failed
+}
+
+enum ShipmentStatus {
+  created
+  shipping
+  delivered
+}
+
+/* =========================
+   USERS & AUTH
+========================= */
+
+model Users {
+  id         String   @id @default(uuid())
+  name       String
+  email      String   @unique
+  phone      String?  @unique
+  password   String
+  role       UserRole
+  isVerified Boolean  @default(false)
+
+  sessions   User_sessions[]
+  carts      Carts[]
+  orders     Orders[]
+  reviews    Reviews[]
+  addresses  Address[]
+  product Products[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model User_sessions {
+  id               String   @id @default(uuid())
+  user_id          String
+  refresh_token_hash String
+  device_info      Json?
+  ip               String?
+  expires_at       DateTime
+
+  user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+/* =========================
+   CATALOGUE
+========================= */
+
+model Categories {
+  id        String      @id @default(uuid())
+  name      String
+  parent_id String?
+
+  parent    Categories? @relation("CategoryTree", fields: [parent_id], references: [id])
+  children  Categories[] @relation("CategoryTree")
+  products  Products[]
+}
+
+model Brands {
+  id    String  @id @default(uuid())
+  name  String  @unique
+
+  products Products[]
+}
+
+model Products {
+  id          String         @id @default(uuid())
+  seller_id   String?
+  title       String
+  description String?
+  category_id String?
+  brand_id    String?
+  status      ProductStatus
+
+  category Categories? @relation(fields: [category_id], references: [id])
+  brand    Brands?     @relation(fields: [brand_id], references: [id])
+  seller   Users?      @relation(fields: [seller_id], references: [id])
+
+  images   Product_images[]
+  variants Variants[]
+  reviews  Reviews[]
+
+  createdAt DateTime @default(now())
+}
+
+model Product_images {
+  id         String   @id @default(uuid())
+  product_id String
+  url        String
+
+  product Products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+}
+
+model Variants {
+  id               String   @id @default(uuid())
+  product_id       String
+  sku              String   @unique
+  attributes       Json
+  price            Int
+  compare_at_price Int?
+  weight_grams     Int?
+  is_active        Boolean  @default(true)
+
+  product   Products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  inventory Inventory[]
+  cartItems Cart_Item[]
+  orderItems Order_Items[]
+}
+
+/* =========================
+   INVENTORY
+========================= */
+
+model Warehouse {
+  id       String   @id @default(uuid())
+  name     String
+  location Json?
+
+  inventory Inventory[]
+}
+
+model Inventory {
+  id           String @id @default(uuid())
+  variant_id   String
+  warehouse_id String
+  stock        Int
+  reserved     Int    @default(0)
+  updated_at   DateTime @default(now())
+
+  variant   Variants  @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouse_id], references: [id])
+
+  @@unique([variant_id, warehouse_id])
+}
+
+/* =========================
+   CART
+========================= */
+
+model Carts {
+  id        String     @id @default(uuid())
+  user_id   String
+  status    CartStatus
+  updatedAt DateTime @updatedAt
+
+  user  Users      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  items Cart_Item[]
+}
+
+model Cart_Item {
+  id             String @id @default(uuid())
+  cart_id        String
+  variant_id     String
+  quantity       Int
+  price_snapshot Int
+
+  cart    Carts   @relation(fields: [cart_id], references: [id], onDelete: Cascade)
+  variant Variants @relation(fields: [variant_id], references: [id])
+
+  @@unique([cart_id, variant_id])
+}
+
+/* =========================
+   ADDRESS
+========================= */
+
+model Address {
+  id             String @id @default(uuid())
+  user_id        String
+  name           String?
+  phone          String?
+  address_line_1 String?
+  address_line_2 String?
+  city           String?
+  state          String?
+  pincode        String?
+  country        String?
+
+  addresses  Order_Addresses[]
+
+  user Users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+/* =========================
+   ORDERS
+========================= */
+
+model Orders {
+  id             String @id @default(uuid())
+  user_id        String
+  order_number   String @unique
+  status         OrderStatus
+  subtotal       Int
+  discount_total Int
+  shipping_total Int
+  tax_total      Int
+  grand_total    Int
+  payment_status PaymentStatus
+
+  user       Users            @relation(fields: [user_id], references: [id])
+  items      Order_Items[]
+  addresses  Order_Addresses[]
+  shipments  Shipments[]
+  payments   Payments[]
+
+  createdAt  DateTime @default(now())
+}
+
+model Order_Items {
+  id             String @id @default(uuid())
+  order_id       String
+  variant_id     String
+  title_snapshot String
+  sku_snapshot   String
+  price_snapshot Int
+  quantity       Int
+
+  order   Orders   @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  variant Variants @relation(fields: [variant_id], references: [id])
+}
+
+model Order_Addresses {
+  id         String @id @default(uuid())
+  order_id   String
+  type       String
+  address_id String
+
+  order   Orders  @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  address Address @relation(fields: [address_id], references: [id])
+}
+
+/* =========================
+   PAYMENTS
+========================= */
+
+model Payments {
+  id         String @id @default(uuid())
+  order_id   String
+  gateway    String
+  amount     Int
+  status     PaymentStatus
+  gateway_id String?
+
+  order   Orders   @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  refunds Refunds[]
+
+  createdAt DateTime @default(now())
+}
+
+model Refunds {
+  id          String @id @default(uuid())
+  payment_id  String
+  amount      Int
+  reason      String?
+  status      String
+
+  payment Payments @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+}
+
+/* =========================
+   REVIEWS
+========================= */
+
+model Reviews {
+  id                   String @id @default(uuid())
+  product_id            String
+  user_id               String
+  rating                Int
+  comment               String?
+  is_verified_purchase  Boolean @default(false)
+
+  product Products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  user    Users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([product_id, user_id])
+}
+
+/* =========================
+   SHIPPING
+========================= */
+
+model Shipments {
+  id              String @id @default(uuid())
+  order_id        String
+  courier         String?
+  tracking_number String?
+  status          ShipmentStatus
+  shipped_at      DateTime?
+  delivered_at    DateTime?
+
+  order   Orders  @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  events  Shipments_Events[]
+}
+
+model Shipments_Events {
+  id          String @id @default(uuid())
+  shipment_id String
+  status      String
+  description String?
+  location    String?
+  created_at  DateTime @default(now())
+
+  shipment Shipments @relation(fields: [shipment_id], references: [id], onDelete: Cascade)
+}
